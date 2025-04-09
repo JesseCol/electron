@@ -1,0 +1,132 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jesse Collins <jecollin@microsoft.com>
+Date: Wed, 9 Apr 2025 15:54:18 -0700
+Subject: Fluent typography feature flag and menu tweaks
+
+This is for local development and I don't intend to merge it to main.
+
+diff --git a/ui/gfx/system_fonts_win.cc b/ui/gfx/system_fonts_win.cc
+index 4bfe0db52fee8a8c800be192980406a5bcd0da7f..05502acaf63d278e45ef93017d1e36286ab23dd6 100644
+--- a/ui/gfx/system_fonts_win.cc
++++ b/ui/gfx/system_fonts_win.cc
+@@ -17,6 +17,7 @@
+ #include "base/win/scoped_hdc.h"
+ #include "base/win/scoped_select_object.h"
+ #include "ui/gfx/platform_font.h"
++#include "ui/native_theme/native_theme_features.h"
+
+ namespace gfx {
+ namespace win {
+@@ -149,6 +150,10 @@ class SystemFonts {
+     const bool success = !!SystemParametersInfo(SPI_GETNONCLIENTMETRICS,
+                                                 metrics.cbSize, &metrics, 0);
+     DCHECK(success);
++
++    if (ui::IsFluentTypographyEnabled()) {
++      AdjustForFluentMetrics(&metrics);
++    }
+
+     // NOTE(dfried): When rendering Chrome, we do all of our own font scaling
+     // based on a number of factors, but what Windows reports to us has some
+@@ -226,6 +231,28 @@ class SystemFonts {
+     return ::GetDeviceCaps(screen_dc, LOGPIXELSY) / kDefaultDPI;
+   }
+
++  void AdjustForFluentMetrics(NONCLIENTMETRICS* metrics) {
++    // Fix up the metrics to match Fluent design.
++    // https://fluent2.microsoft.design/typography
++
++    constexpr wchar_t* kSegoeUIVariable = L"Segoe UI Variable";
++
++    wcscpy(metrics->lfCaptionFont.lfFaceName, kSegoeUIVariable);
++    metrics->lfCaptionFont.lfHeight = -14;
++
++    wcscpy(metrics->lfSmCaptionFont.lfFaceName, kSegoeUIVariable);
++    metrics->lfSmCaptionFont.lfHeight = -14;
++
++    wcscpy(metrics->lfMenuFont.lfFaceName, kSegoeUIVariable);
++    metrics->lfMenuFont.lfHeight = -14;
++
++    wcscpy(metrics->lfMessageFont.lfFaceName, kSegoeUIVariable);
++    metrics->lfMessageFont.lfHeight = -14;
++
++    wcscpy(metrics->lfStatusFont.lfFaceName, kSegoeUIVariable);
++    metrics->lfStatusFont.lfHeight = -14;
++  }
++
+   // Use a flat map for faster lookups.
+   base::flat_map<SystemFont, gfx::Font> system_fonts_;
+
+diff --git a/ui/native_theme/native_theme_features.cc b/ui/native_theme/native_theme_features.cc
+index 30f676ad5bbf01162c234e8728d67baf03aa96c7..fd95f37d46d8e9980386b3a302b5b626bd39a40b 100644
+--- a/ui/native_theme/native_theme_features.cc
++++ b/ui/native_theme/native_theme_features.cc
+@@ -67,6 +67,12 @@ BASE_FEATURE(kFluentOverlayScrollbar,
+ BASE_FEATURE(kModifyScrollbarCssColorOnHoverOrPress,
+              "ModifyScrollbarCssColorOnHoverOrPress",
+              base::FEATURE_ENABLED_BY_DEFAULT);
++
++// Sets fonts and font sizes to match Fluent design language.
++// See https://fluent2.microsoft.design/typography
++BASE_FEATURE(kFluentTypography,
++             "FluentTypography",
++             base::FEATURE_DISABLED_BY_DEFAULT);
+ }  // namespace features
+
+ namespace ui {
+@@ -100,4 +106,8 @@ bool IsModifyScrollbarCssColorOnHoverOrPressEnabled() {
+       features::kModifyScrollbarCssColorOnHoverOrPress);
+ }
+
++bool IsFluentTypographyEnabled() {
++  return base::FeatureList::IsEnabled(features::kFluentTypography);
++}
++
+ }  // namespace ui
+diff --git a/ui/native_theme/native_theme_features.h b/ui/native_theme/native_theme_features.h
+index 39ebd20d81f82032b20b3075773a20658484c254..16824ab3977d680183d23b30ee9403366b8c3f47 100644
+--- a/ui/native_theme/native_theme_features.h
++++ b/ui/native_theme/native_theme_features.h
+@@ -31,6 +31,7 @@ namespace ui {
+
+ NATIVE_THEME_EXPORT bool IsFluentOverlayScrollbarEnabled();
+ NATIVE_THEME_EXPORT bool IsFluentScrollbarEnabled();
++NATIVE_THEME_EXPORT bool IsFluentTypographyEnabled();
+
+ NATIVE_THEME_EXPORT bool IsOverlayScrollbarEnabledByFeatureFlag();
+ NATIVE_THEME_EXPORT bool IsModifyScrollbarCssColorOnHoverOrPressEnabled();
+diff --git a/ui/views/bubble/bubble_border.cc b/ui/views/bubble/bubble_border.cc
+index f1ed778be90e2413f29673a3e3bb4a77dd68b19a..b40aff7b1a24ba4a9ba2548ec49474f6d8e02043 100644
+--- a/ui/views/bubble/bubble_border.cc
++++ b/ui/views/bubble/bubble_border.cc
+@@ -248,7 +248,7 @@ void DrawBorderAndShadowImpl(
+     bool draw_stroke = true,
+     const std::optional<int>& elevation = std::nullopt,
+     BubbleBorder::Shadow shadow_type = BubbleBorder::STANDARD_SHADOW) {
+-  if (draw_stroke) {
++  if (true /*draw_stroke*/) {
+     // Provide a 1 px border outside the bounds.
+     constexpr int kBorderStrokeThicknessPx = 1;
+     const SkScalar one_pixel =
+@@ -751,7 +751,7 @@ void BubbleBackground::Paint(gfx::Canvas* canvas, views::View* view) const {
+   bounds.Inset(gfx::InsetsF(border_->GetInsets()));
+
+   // Give precedence to customized rounded corners when non-empty.
+-  const gfx::RoundedCornersF corners =
++  const gfx::RoundedCornersF corners =
+       border_->rounded_corners().IsEmpty()
+           ? gfx::RoundedCornersF(border_->corner_radius())
+           : border_->rounded_corners();
+diff --git a/ui/views/layout/layout_provider.cc b/ui/views/layout/layout_provider.cc
+index 926bbba66122573fb4f555fa0791219d9149ebec..1dbc3872377d96aba568cd7275a42cea0fc8d722 100644
+--- a/ui/views/layout/layout_provider.cc
++++ b/ui/views/layout/layout_provider.cc
+@@ -205,7 +205,7 @@ ShapeSysTokens GetShapeSysToken(ShapeContextTokens id) {
+           {ShapeContextTokens::kExtensionsMenuButtonRadius,
+            ShapeSysTokens::kXSmall},
+           {ShapeContextTokens::kFindBarViewRadius, ShapeSysTokens::kSmall},
+-          {ShapeContextTokens::kMenuRadius, ShapeSysTokens::kMediumSmall},
++          {ShapeContextTokens::kMenuRadius, ShapeSysTokens::kSmall},
+           {ShapeContextTokens::kMenuAuxRadius, ShapeSysTokens::kMediumSmall},
+           {ShapeContextTokens::kMenuTouchRadius, ShapeSysTokens::kMediumSmall},
+           {ShapeContextTokens::kOmniboxExpandedRadius, ShapeSysTokens::kMedium},
